@@ -1,98 +1,147 @@
-import * as Device from 'expo-device';
-import { Platform, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+  AndroidBlockableApp,
+  configureAndroid,
+  getBlockedApps,
+  getInstalledApps,
+  getPermissionStatus,
+  openOverlaySettings,
+  openUsageStatsSettings,
+  setBlockedApps,
+  startMonitoring,
+} from 'expo-app-blocker';
+import { Stack } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { PermissionsAndroid, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { AnimatedIcon } from '@/components/animated-icon';
-import { HintRow } from '@/components/hint-row';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { WebBadge } from '@/components/web-badge';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 
-function getDevMenuHint() {
-  if (Platform.OS === 'web') {
-    return <ThemedText type="small">use browser devtools</ThemedText>;
-  }
-  if (Device.isDevice) {
-    return (
-      <ThemedText type="small">
-        shake device or press <ThemedText type="code">m</ThemedText> in terminal
-      </ThemedText>
-    );
-  }
-  const shortcut = Platform.OS === 'android' ? 'cmd+m (or ctrl+m)' : 'cmd+d';
+
+export default function BlockDis() {
+  const insets = useSafeAreaInsets();
+  const [apps, setApps] = useState<AndroidBlockableApp[]>([]);
+
+  useEffect(() => {
+    (async () => {
+      const result = await getInstalledApps();
+      setApps(result);
+      configureAndroid({
+        overlayTitle: 'KIMI YOWAI MON',
+        overlayText: 'GET OUT.',
+        overlayBackgroundColor: '#2F2723',
+        overlayTitleColor: '#9C95DC',
+        overlayTextColor: '#F0EBD8',
+        overlayTitleFontSize: 28,
+        overlayTextFontSize: 16,
+        overlayTitleBold: true,
+        overlayShowSpinner: true,
+        overlaySpinnerColor: '#9C95DC',
+        overlaySpinnerSize: 50,
+        overlayPadding: 0,
+      });
+      startMonitoring();
+
+    })();
+  }, []);
+
+  const [blockedApps, setBlockedAppsState] = useState<string[]>([]);
+  useEffect(() => {
+    setBlockedAppsState(getBlockedApps());
+  }, []);
+  console.log('Blocked apps:', blockedApps);
+
   return (
-    <ThemedText type="small">
-      press <ThemedText type="code">{shortcut}</ThemedText>
-    </ThemedText>
+    <ScrollView
+      style={[styles.container]}
+      contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}
+    >
+      <Stack.Screen options={{headerStyle: { backgroundColor: '#2F2723' },headerTintColor: '#9C95DC',headerTitleStyle: styles.title, title: 'DateTech' }}/>
+      <Stack.Screen options={{ headerBackVisible: false }} />   
+
+      <View style={styles.grid}>
+        {apps.map((app) => (
+          <View style={styles.row} key={app.packageName}>
+            <Text style={styles.text} numberOfLines={1}>
+              {app.name}
+            </Text>
+            <Switch
+              trackColor={{ false: '#A0887E', true: '#D64550' }}
+              thumbColor="#D64550"
+              value={blockedApps.includes(app.packageName)}
+              onValueChange={() => toggleBlockApp(app.packageName)}
+            />
+          </View>
+        ))}
+      </View>
+    </ScrollView>
   );
+  async function toggleBlockApp(packageName: string): Promise<void> {
+    console.log('Toggling block for app:', packageName);
+    const hasPermissions = await checkPermissions();
+
+    if (hasPermissions) {
+      console.log('All persmission permited. Continuing to toggle block for app:', packageName);
+      if (blockedApps.includes(packageName)) {
+        console.log('Unblocking app:', packageName);
+        const updateBlockedApps = blockedApps.filter(app => app !== packageName);
+        setBlockedAppsState(updateBlockedApps);
+        setBlockedApps(updateBlockedApps);
+        console.log('Updated blocked apps:', updateBlockedApps);
+      } else {
+        console.log('Blocking app:', packageName);
+        const updateBlockedApps = [...blockedApps, packageName];
+        setBlockedAppsState(updateBlockedApps);
+        setBlockedApps(updateBlockedApps);
+        console.log('Updated blocked apps:', updateBlockedApps);
+      }
+    } else {
+      const status = await getPermissionStatus();
+      if (!status.allGranted && status.details.platform === 'android') {
+        if (!status.details.overlay) {
+          console.log('Overlay permission missing');
+          openOverlaySettings();
+        }
+
+        if (!status.details.usageStats) {
+          console.log('Usage stats permission missing');
+          openUsageStatsSettings();
+        }
+        if (!status.details.notifications) {
+          console.log('Notification permission missing');
+          PermissionsAndroid.request('android.permission.POST_NOTIFICATIONS');
+        }
+      }
+    }
+  }
 }
 
-export default function HomeScreen() {
-  return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <ThemedView style={styles.heroSection}>
-          <AnimatedIcon />
-          <ThemedText type="title" style={styles.title}>
-            Welcome to&nbsp;Expo
-          </ThemedText>
-        </ThemedView>
-
-        <ThemedText type="code" style={styles.code}>
-          get started
-        </ThemedText>
-
-        <ThemedView type="backgroundElement" style={styles.stepContainer}>
-          <HintRow
-            title="Try editing"
-            hint={<ThemedText type="code">src/app/index.tsx</ThemedText>}
-          />
-          <HintRow title="Dev tools" hint={getDevMenuHint()} />
-          <HintRow
-            title="Fresh start"
-            hint={<ThemedText type="code">npm run reset-project</ThemedText>}
-          />
-        </ThemedView>
-
-        {Platform.OS === 'web' && <WebBadge />}
-      </SafeAreaView>
-    </ThemedView>
-  );
+async function checkPermissions(): Promise<boolean> {
+  console.log('Checking permissions...');
+  const status = await getPermissionStatus();
+  console.log('Permission status:', status);
+  if (status.allGranted) {
+    console.log('All permissions granted');
+    return true;
+  }
+  return false;
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
+  container: { backgroundColor: '#2F2723', flex: 1, padding: 16 },
+  text: { color: '#F0EBD8', fontSize: 16, flexShrink: 1, marginBottom: 16 },
+  grid: { gap: 8 },
+  row: {
+    alignItems: 'center',
+    borderColor: '#9C95DC',
+    borderRadius: 8,
+    borderWidth: 1,
     flexDirection: 'row',
-  },
-  safeArea: {
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    alignItems: 'center',
-    gap: Spacing.three,
-    paddingBottom: BottomTabInset + Spacing.three,
-    maxWidth: MaxContentWidth,
-  },
-  heroSection: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    gap: Spacing.four,
+    justifyContent: 'space-between',
+    padding: 10,
   },
   title: {
-    textAlign: 'center',
-  },
-  code: {
-    textTransform: 'uppercase',
-  },
-  stepContainer: {
-    gap: Spacing.three,
-    alignSelf: 'stretch',
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.four,
-    borderRadius: Spacing.four,
+    color: '#9C95DC',
+    fontSize: 28,
+    fontWeight: 'bold',
+    marginBottom: 16,
   },
 });
